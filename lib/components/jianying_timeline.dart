@@ -16,8 +16,6 @@ class JianyingTimeline extends StatefulWidget {
   final bool isPlaying;
   final bool isMuted;
   final VoidCallback? onMuteToggle;
-  final String exportFormat;
-  final Function(String)? onExportFormatChanged;
   final double height;
   
   const JianyingTimeline({
@@ -35,8 +33,6 @@ class JianyingTimeline extends StatefulWidget {
     this.onSplit,
     this.isMuted = false,
     this.onMuteToggle,
-    this.exportFormat = 'mov',
-    this.onExportFormatChanged,
     this.height = 120.0,
   });
 
@@ -181,8 +177,6 @@ class _JianyingTimelineState extends State<JianyingTimeline> {
         }
         
         final thumbnailWidth = (_trackHeight * (16 / 9)) * _scale;
-        final muteButtonWidth = widget.onMuteToggle != null ? 40.0 : 0.0;
-        final totalContentWidth = thumbnailWidth * count + muteButtonWidth;
         
         return SingleChildScrollView(
           controller: _videoTrackScrollController,
@@ -511,57 +505,6 @@ class _JianyingTimelineState extends State<JianyingTimeline> {
             style: const TextStyle(color: Colors.grey, fontSize: 12),
           ),
           const Spacer(),
-          if (widget.onExportFormatChanged != null) ...[
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.file_download,
-                  color: Colors.white,
-                  size: 16,
-                ),
-                const SizedBox(width: 4),
-                const Text(
-                  '导出: ',
-                  style: TextStyle(color: Colors.white, fontSize: 12),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF444444),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: DropdownButton<String>(
-                    value: widget.exportFormat,
-                    onChanged: (String? newValue) {
-                      if (newValue != null) {
-                        widget.onExportFormatChanged!(newValue);
-                      }
-                    },
-                    dropdownColor: const Color(0xFF444444),
-                    underline: Container(),
-                    icon: const Icon(Icons.arrow_drop_down, color: Colors.white, size: 16),
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'mov',
-                        child: Text('MOV'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'mp4',
-                        child: Text('MP4'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'avi',
-                        child: Text('AVI'),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-              ],
-            ),
-          ],
           if (widget.onSplit != null) ...[
             IconButton(
               onPressed: widget.onSplit,

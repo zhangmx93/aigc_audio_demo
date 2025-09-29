@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'components/jianying_timeline.dart';
+import 'components/export_format_selector.dart';
 import 'controllers/ffmpeg_cropper_controller.dart';
 
 class FfmpegCropperScreen extends StatefulWidget {
@@ -25,7 +26,6 @@ class _FfmpegCropperScreenState extends State<FfmpegCropperScreen> {
     });
   }
 
-
   Future<void> _pickVideo() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.video);
     if (result != null && result.files.single.path != null) {
@@ -34,7 +34,6 @@ class _FfmpegCropperScreenState extends State<FfmpegCropperScreen> {
       await _controller.initPlayer(picked);
     }
   }
-
 
   @override
   void dispose() {
@@ -52,20 +51,30 @@ class _FfmpegCropperScreenState extends State<FfmpegCropperScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
                 children: [
                   ElevatedButton.icon(
                     onPressed: _controller.isRunning ? null : _pickVideo,
                     icon: const Icon(Icons.video_file),
                     label: const Text('选择视频'),
                   ),
-                  const SizedBox(width: 12),
                   ElevatedButton.icon(
-                    onPressed: _controller.isRunning || _controller.inputPath == null
+                    onPressed:
+                        _controller.isRunning || _controller.inputPath == null
                         ? null
                         : _controller.cropCenterSquare,
                     icon: const Icon(Icons.crop_square),
                     label: const Text('执行裁剪'),
+                  ),
+                  // Export format selector
+                  ExportFormatSelector(
+                    selectedFormat: _controller.exportFormat,
+                    onChanged: (format) {
+                      _controller.setExportFormat(format);
+                    },
+                    enabled: !_controller.isRunning,
                   ),
                 ],
               ),
@@ -76,35 +85,36 @@ class _FfmpegCropperScreenState extends State<FfmpegCropperScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 68),
                   child: SizedBox(
                     width: _controller.viewWidth,
-                  child: AspectRatio(
-                    aspectRatio: _controller.player!.value.aspectRatio == 0
-                        ? 16 / 9
-                        : _controller.player!.value.aspectRatio,
-                    child: Stack(
-                      alignment: Alignment.bottomCenter,
-                      children: [
-                        VideoPlayer(_controller.player!),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            IconButton(
-                              onPressed: _controller.isRunning
-                                  ? null
-                                  : _controller.playPause,
-                              icon: Icon(
-                                _controller.player!.value.isPlaying
-                                    ? Icons.pause_circle
-                                    : Icons.play_circle,
+                    child: AspectRatio(
+                      aspectRatio: _controller.player!.value.aspectRatio == 0
+                          ? 16 / 9
+                          : _controller.player!.value.aspectRatio,
+                      child: Stack(
+                        alignment: Alignment.bottomCenter,
+                        children: [
+                          VideoPlayer(_controller.player!),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              IconButton(
+                                onPressed: _controller.isRunning
+                                    ? null
+                                    : _controller.playPause,
+                                icon: Icon(
+                                  _controller.player!.value.isPlaying
+                                      ? Icons.pause_circle
+                                      : Icons.play_circle,
+                                ),
+                                iconSize: 42,
+                                color: Colors.white,
                               ),
-                              iconSize: 42,
-                              color: Colors.white,
-                            ),
-                          ],
-                        ),
-                      ],
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                )),
+                ),
 
               const SizedBox(height: 12),
 
@@ -140,7 +150,10 @@ class _FfmpegCropperScreenState extends State<FfmpegCropperScreen> {
                 ),
 
               if (_controller.isRunning) const LinearProgressIndicator(),
-              if (_controller.log != null) ...[const SizedBox(height: 8), Text(_controller.log!)],
+              if (_controller.log != null) ...[
+                const SizedBox(height: 8),
+                Text(_controller.log!),
+              ],
               const SizedBox(height: 8),
               Text('输出: ${_controller.outputPath ?? '-'}'),
               const SizedBox(height: 8),
@@ -167,4 +180,3 @@ class _FfmpegCropperScreenState extends State<FfmpegCropperScreen> {
     );
   }
 }
-

@@ -7,6 +7,7 @@ import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/media_information_session.dart';
 import 'package:ffmpeg_kit_flutter_new/media_information.dart';
 import 'package:video_player/video_player.dart';
+import '../data/export_formats.dart';
 
 class FfmpegCropperController extends ChangeNotifier {
   String? _inputPath;
@@ -23,7 +24,7 @@ class FfmpegCropperController extends ChangeNotifier {
   final List<String> _thumbnails = <String>[];
   bool _isGeneratingThumbs = false;
   bool _isMuted = false;
-  String _exportFormat = 'mov';
+  ExportFormat _exportFormat = ExportFormat.mov;
   // Thumbnail generation based on frame rate
   static const double _thumbnailFrameRate = 1.0; // 1 thumbnail per second
   static const int _maxThumbnails = 60; // Maximum thumbnails to prevent excessive generation
@@ -49,7 +50,7 @@ class FfmpegCropperController extends ChangeNotifier {
   double get maxWidth => _maxWidth;
   Duration get currentPosition => _player?.value.position ?? Duration.zero;
   bool get isMuted => _isMuted;
-  String get exportFormat => _exportFormat;
+  ExportFormat get exportFormat => _exportFormat;
 
   void _updateState() {
     notifyListeners();
@@ -129,7 +130,7 @@ class FfmpegCropperController extends ChangeNotifier {
     }
   }
 
-  void setExportFormat(String format) {
+  void setExportFormat(ExportFormat format) {
     _exportFormat = format;
     _updateState();
   }
@@ -291,8 +292,9 @@ class FfmpegCropperController extends ChangeNotifier {
       final y = ((size.height - minSide) / 2).floor();
 
       final dir = await getTemporaryDirectory();
+      final formatData = ExportFormats.getByFormat(_exportFormat);
       final outPath =
-          '${dir.path}/crop_${DateTime.now().millisecondsSinceEpoch}.$_exportFormat';
+          '${dir.path}/crop_${DateTime.now().millisecondsSinceEpoch}.${formatData.extension}';
 
       final filter = 'crop=$minSide:$minSide:$x:$y';
       final ss = startSec.toStringAsFixed(3);
