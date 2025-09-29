@@ -6,6 +6,8 @@ import 'package:video_player/video_player.dart';
 import 'components/jianying_timeline.dart';
 import 'components/export_format_selector.dart';
 import 'controllers/ffmpeg_cropper_controller.dart';
+import 'services/gallery_service.dart';
+import 'services/permission_manager.dart';
 
 class FfmpegCropperScreen extends StatefulWidget {
   const FfmpegCropperScreen({super.key});
@@ -24,6 +26,26 @@ class _FfmpegCropperScreenState extends State<FfmpegCropperScreen> {
     _controller.addListener(() {
       if (mounted) setState(() {});
     });
+    
+    // 在应用启动时预先请求权限
+    _requestPermissionsOnStartup();
+  }
+
+  /// 启动时请求权限
+  void _requestPermissionsOnStartup() async {
+    try {
+      await PermissionManager.requestAllPermissions();
+    } catch (e) {
+      // 静默处理权限请求错误，用户可以在保存时再次请求
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('建议授予相册权限以保存编辑后的视频'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _pickVideo() async {
@@ -158,21 +180,77 @@ class _FfmpegCropperScreenState extends State<FfmpegCropperScreen> {
               Text('输出: ${_controller.outputPath ?? '-'}'),
               const SizedBox(height: 8),
               if (_controller.outputPath != null)
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    final out = _controller.outputPath!;
-                    final scaffoldMessenger = ScaffoldMessenger.of(context);
-                    final exists = await File(out).exists();
-                    if (!mounted) return;
-                    if (exists) {
-                      scaffoldMessenger.showSnackBar(
-                        SnackBar(content: Text('已保存到: $out')),
-                      );
-                    }
-                  },
-                  icon: const Icon(Icons.check),
-                  label: const Text('完成'),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () async {
+                        final out = _controller.outputPath!;
+                        final scaffoldMessenger = ScaffoldMessenger.of(context);
+                        final exists = await File(out).exists();
+                        if (!mounted) return;
+                        if (exists) {
+                          scaffoldMessenger.showSnackBar(
+                            SnackBar(content: Text('文件位置: $out')),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.folder),
+                      label: const Text('查看文件'),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () async {
+                        final out = _controller.outputPath!;
+                        final scaffoldMessenger = ScaffoldMessenger.of(context);
+                        final navigator = Navigator.of(context);
+                        
+                        // 显示加载指示器
+                        showDialog(
+                          context: context,
+                          barrierDismissible: false,
+                          builder: (context) => const AlertDialog(
+                            content: Row(
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(width: 16),
+                                Text('正在保存到相册...'),
+                              ],
+                            ),
+                          ),
+                        );
+                        
+                        final success = await GalleryService.saveVideoToGallery(out);
+                        
+                        if (!mounted) return;
+                        navigator.pop(); // 关闭加载对话框
+                        
+                        if (success) {
+                          scaffoldMessenger.showSnackBar(
+                            const SnackBar(
+                              content: Text('✅ 视频已成功保存到相册'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        } else {
+                          scaffoldMessenger.showSnackBar(
+                            const SnackBar(
+                              content: Text('❌ 保存到相册失败，请检查权限设置'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.save_alt),
+                      label: const Text('保存到相册'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
                 ),
+                SizedBox(height: 40),
             ],
           ),
         ),

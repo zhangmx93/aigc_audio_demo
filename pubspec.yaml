@@ -56,6 +56,9 @@ dependencies:
   # Permission handling
   permission_handler: ^11.0.1
   
+  # Photo and video gallery management
+  photo_manager: ^3.7.1
+  
   # State management
   get: ^4.6.6
 
