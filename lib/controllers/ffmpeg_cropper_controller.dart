@@ -8,6 +8,7 @@ import 'package:ffmpeg_kit_flutter_new/media_information_session.dart';
 import 'package:ffmpeg_kit_flutter_new/media_information.dart';
 import 'package:video_player/video_player.dart';
 import '../data/export_formats.dart';
+import '../data/audio_tracks.dart';
 
 class FfmpegCropperController extends ChangeNotifier {
   String? _inputPath;
@@ -25,6 +26,8 @@ class FfmpegCropperController extends ChangeNotifier {
   bool _isGeneratingThumbs = false;
   bool _isMuted = false;
   ExportFormat _exportFormat = ExportFormat.mov;
+  AudioTrackType _audioTrackType = AudioTrackType.original;
+  String? _customAudioPath;
   // Thumbnail generation based on frame rate
   static const double _thumbnailFrameRate = 1.0; // 1 thumbnail per second
   static const int _maxThumbnails = 60; // Maximum thumbnails to prevent excessive generation
@@ -51,6 +54,8 @@ class FfmpegCropperController extends ChangeNotifier {
   Duration get currentPosition => _player?.value.position ?? Duration.zero;
   bool get isMuted => _isMuted;
   ExportFormat get exportFormat => _exportFormat;
+  AudioTrackType get audioTrackType => _audioTrackType;
+  String? get customAudioPath => _customAudioPath;
 
   void _updateState() {
     notifyListeners();
@@ -132,6 +137,34 @@ class FfmpegCropperController extends ChangeNotifier {
 
   void setExportFormat(ExportFormat format) {
     _exportFormat = format;
+    _updateState();
+  }
+
+  void setAudioTrackType(AudioTrackType type) {
+    _audioTrackType = type;
+    // 如果不是自定义音频，清除自定义音频路径
+    if (type != AudioTrackType.custom) {
+      _customAudioPath = null;
+    }
+    // 如果是静音，同时设置播放器静音
+    if (type == AudioTrackType.silent) {
+      _isMuted = true;
+      _applyMuteToPlayer();
+    } else if (type == AudioTrackType.original) {
+      _isMuted = false;
+      _applyMuteToPlayer();
+    }
+    _updateState();
+  }
+
+  void setCustomAudioPath(String? path) {
+    _customAudioPath = path;
+    if (path != null) {
+      _audioTrackType = AudioTrackType.custom;
+      // 自定义音频时，视频播放器静音，只听自定义音频
+      _isMuted = true;
+      _applyMuteToPlayer();
+    }
     _updateState();
   }
 
@@ -300,16 +333,40 @@ class FfmpegCropperController extends ChangeNotifier {
       final ss = startSec.toStringAsFixed(3);
       final t = durSec.toStringAsFixed(3);
       
-      // Build FFmpeg command with mute support
+      // Build FFmpeg command with audio track support
       String audioParam;
-      if (_isMuted) {
-        audioParam = '-an'; // Remove audio track
-      } else {
-        audioParam = '-c:a copy'; // Copy audio track
+      List<String> inputParams = ["-i '$input'"];
+      String filterComplex = "";
+      
+      switch (_audioTrackType) {
+        case AudioTrackType.original:
+          audioParam = '-c:a copy';
+          break;
+        case AudioTrackType.silent:
+          audioParam = '-an'; // Remove audio track
+          break;
+        case AudioTrackType.custom:
+          if (_customAudioPath != null && File(_customAudioPath!).existsSync()) {
+            // Add custom audio as second input
+            inputParams.add("-i '$_customAudioPath'");
+            // Mix video with custom audio, keeping video length
+            filterComplex = "-filter_complex \"[0:v]$filter[v];[1:a]atrim=duration=$t[a]\" -map \"[v]\" -map \"[a]\" -c:v libx264 -preset veryfast -crf 23 -c:a aac";
+            audioParam = "";
+          } else {
+            // Fallback to silent if custom audio not found
+            audioParam = '-an';
+          }
+          break;
       }
       
-      final cmd =
-          "-y -i '$input' -ss $ss -t $t -vf $filter -c:v libx264 -preset veryfast -crf 23 $audioParam '$outPath'";
+      String cmd;
+      if (filterComplex.isNotEmpty) {
+        // Custom audio command
+        cmd = "-y ${inputParams.join(' ')} -ss $ss -t $t $filterComplex '$outPath'";
+      } else {
+        // Standard command
+        cmd = "-y -i '$input' -ss $ss -t $t -vf $filter -c:v libx264 -preset veryfast -crf 23 $audioParam '$outPath'";
+      }
 
       final session = await FFmpegKit.execute(cmd);
       final rc = await session.getReturnCode();

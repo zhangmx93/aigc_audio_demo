@@ -1,10 +1,12 @@
 import 'dart:io';
 
+import 'package:aigc_audio_demo/data/audio_tracks.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'components/jianying_timeline.dart';
 import 'components/export_format_selector.dart';
+import 'components/audio_track_selector.dart';
 import 'controllers/ffmpeg_cropper_controller.dart';
 import 'services/gallery_service.dart';
 import 'services/permission_manager.dart';
@@ -143,7 +145,6 @@ class _FfmpegCropperScreenState extends State<FfmpegCropperScreen> {
               // Jianying-style timeline
               if (_controller.hasVideo)
                 SizedBox(
-                  height: 150,
                   child: JianyingTimeline(
                     thumbnails: _controller.thumbnails,
                     isGeneratingThumbs: _controller.isGeneratingThumbs,
@@ -168,6 +169,21 @@ class _FfmpegCropperScreenState extends State<FfmpegCropperScreen> {
                     onMuteToggle: () {
                       _controller.toggleMute();
                     },
+                    onAudioFileSelected: (path) async {
+                      if (path == null) {
+                        _controller.setCustomAudioPath(null);
+                        _controller.setAudioTrackType(AudioTrackType.original);
+                      } else {
+                        // Implement file picker for audio
+                        final result = await FilePicker.platform.pickFiles(type: FileType.audio);
+                        if (result != null && result.files.single.path != null) {
+                          final audioPath = result.files.single.path!;
+                          _controller.setCustomAudioPath(audioPath);
+                          _controller.setAudioTrackType(AudioTrackType.custom);
+                        }
+                      }
+                    },
+                    customAudioPath: _controller.customAudioPath,
                   ),
                 ),
 

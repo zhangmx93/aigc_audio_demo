@@ -16,6 +16,8 @@ class JianyingTimeline extends StatefulWidget {
   final bool isPlaying;
   final bool isMuted;
   final VoidCallback? onMuteToggle;
+  final Function(String?)? onAudioFileSelected;
+  final String? customAudioPath;
   final double height;
   
   const JianyingTimeline({
@@ -33,7 +35,9 @@ class JianyingTimeline extends StatefulWidget {
     this.onSplit,
     this.isMuted = false,
     this.onMuteToggle,
-    this.height = 120.0,
+    this.onAudioFileSelected,
+    this.customAudioPath,
+    this.height = 180.0,
   });
 
   @override
@@ -53,7 +57,7 @@ class _JianyingTimelineState extends State<JianyingTimeline> {
   static const double _handleTouchArea = 32.0;
   static const double _playheadWidth = 2.0;
   static const double _timeRulerHeight = 30.0;
-  static const double _trackHeight = 60.0;
+  static const double _trackHeight = 80.0;
   static const double _minSelectionSeconds = 0.1;
 
   @override
@@ -107,6 +111,8 @@ class _JianyingTimelineState extends State<JianyingTimeline> {
           Expanded(child: _buildVideoTrack()),
           // Controls
           _buildControls(),
+          // Audio track controls
+          if (widget.onAudioFileSelected != null) _buildAudioTrackControls(),
         ],
       ),
     );
@@ -554,6 +560,80 @@ class _JianyingTimelineState extends State<JianyingTimeline> {
       ),
     );
   }
+
+  Widget _buildAudioTrackControls() {
+    return Container(
+      height: 40,
+      color: const Color(0xFF2A2A2A),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(
+        children: [
+          Icon(Icons.audiotrack, color: Colors.orange, size: 18),
+          const SizedBox(width: 8),
+          Text(
+            '音轨:',
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+          ),
+          const SizedBox(width: 8),
+          if (widget.customAudioPath != null) ...[
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade800.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.orange.shade600, width: 1),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.music_note, color: Colors.orange, size: 14),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        widget.customAudioPath!.split('/').last,
+                        style: const TextStyle(color: Colors.white, fontSize: 11),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () => widget.onAudioFileSelected?.call(null),
+                      child: Icon(Icons.close, color: Colors.red.shade400, size: 16),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ] else ...[
+            GestureDetector(
+              onTap: () async {
+                // Simple file selection - you can implement file picker here
+                widget.onAudioFileSelected?.call('placeholder_path');
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade800.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.orange.shade600, width: 1),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.add, color: Colors.orange, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      '添加音频',
+                      style: TextStyle(color: Colors.orange.shade200, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
 }
 
 class _TimeRulerPainter extends CustomPainter {
