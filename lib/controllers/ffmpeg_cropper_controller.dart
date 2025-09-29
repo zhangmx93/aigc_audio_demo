@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
@@ -7,6 +8,7 @@ import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/media_information_session.dart';
 import 'package:ffmpeg_kit_flutter_new/media_information.dart';
 import 'package:video_player/video_player.dart';
+import 'package:just_audio/just_audio.dart';
 import '../data/export_formats.dart';
 import '../data/audio_tracks.dart';
 
@@ -15,8 +17,10 @@ class FfmpegCropperController extends ChangeNotifier {
   String? _outputPath;
   String? _log;
   bool _isRunning = false;
+  bool _isDisposed = false; // 添加dispose标志
 
   VideoPlayerController? _player;
+  AudioPlayer? _audioPlayer;
   Duration _duration = Duration.zero;
   double _trimStart = 0.0;
   double _trimEnd = 0.0;
@@ -56,8 +60,12 @@ class FfmpegCropperController extends ChangeNotifier {
   ExportFormat get exportFormat => _exportFormat;
   AudioTrackType get audioTrackType => _audioTrackType;
   String? get customAudioPath => _customAudioPath;
+  
+  // 获取当前是否正在播放
+  bool get isPlaying => _player?.value.isPlaying ?? false;
 
   void _updateState() {
+    if (_isDisposed) return; // 如果已经disposed，不再调用notifyListeners
     notifyListeners();
   }
 
@@ -157,15 +165,92 @@ class FfmpegCropperController extends ChangeNotifier {
     _updateState();
   }
 
-  void setCustomAudioPath(String? path) {
+  void setCustomAudioPath(String? path) async {
+    if (_isDisposed) return; // 检查是否已dispose
+    
     _customAudioPath = path;
     if (path != null) {
       _audioTrackType = AudioTrackType.custom;
-      // 自定义音频时，视频播放器静音，只听自定义音频
+      // 自定义音频时，视频播放器静音，但视频依然播放
       _isMuted = true;
+      _applyMuteToPlayer();
+      
+      // 初始化音频播放器
+      await _initAudioPlayer(path);
+    } else {
+      // 清理音频播放器并恢复原音轨
+      await _disposeAudioPlayer();
+      _audioTrackType = AudioTrackType.original;
+      _isMuted = false;
       _applyMuteToPlayer();
     }
     _updateState();
+  }
+
+  /// 初始化音频播放器
+  Future<void> _initAudioPlayer(String audioPath) async {
+    if (_isDisposed) return; // 检查是否已dispose
+    
+    try {
+      await _disposeAudioPlayer(); // 清理旧的播放器
+      
+      if (_isDisposed) return; // 在清理后再次检查
+      
+      _audioPlayer = AudioPlayer();
+      
+      if (audioPath.startsWith('assets/')) {
+        // Asset音频
+        await _audioPlayer!.setAsset(audioPath);
+      } else {
+        // 文件路径音频
+        await _audioPlayer!.setFilePath(audioPath);
+      }
+      
+      if (_isDisposed) return; // 在设置后检查
+      
+      // 设置循环播放模式以匹配视频长度
+      await _audioPlayer!.setLoopMode(LoopMode.one);
+      
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error initializing audio player: $e');
+      }
+      await _disposeAudioPlayer();
+    }
+  }
+
+  /// 清理音频播放器
+  Future<void> _disposeAudioPlayer() async {
+    if (_audioPlayer != null) {
+      try {
+        await _audioPlayer!.stop();
+        await _audioPlayer!.dispose();
+      } catch (e) {
+        if (kDebugMode) {
+          print('Error disposing audio player: $e');
+        }
+      } finally {
+        _audioPlayer = null;
+      }
+    }
+  }
+
+  /// Copy asset file to temporary directory for FFmpeg processing
+  Future<String?> _copyAssetToTemp(String assetPath) async {
+    try {
+      final ByteData data = await rootBundle.load(assetPath);
+      final buffer = data.buffer;
+      final dir = await getTemporaryDirectory();
+      final fileName = assetPath.split('/').last;
+      final tempFile = File('${dir.path}/$fileName');
+      await tempFile.writeAsBytes(buffer.asUint8List(data.offsetInBytes, data.lengthInBytes));
+      return tempFile.path;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error copying asset: $e');
+      }
+      return null;
+    }
   }
 
   Future<void> initPlayer(String path) async {
@@ -200,22 +285,35 @@ class FfmpegCropperController extends ChangeNotifier {
     if (p == null || !p.value.isInitialized || _isSeeking) return;
     final position = p.value.position.inMilliseconds / 1000.0;
     if (position < _trimStart - 0.02) {
-      _seekToTrimStart();
+      _seekToTrimStart(); // 只seek，不播放
       return;
     }
     if (position > _trimEnd) {
-      _seekToTrimStart(playAfterSeek: true);
+      // 跳回开头并继续播放（循环播放效果）
+      _seekToTrimStart().then((_) {
+        if (!_isDisposed && p.value.isPlaying) {
+          p.play();
+          if (_audioPlayer != null && _audioTrackType == AudioTrackType.custom) {
+            _audioPlayer!.play();
+          }
+        }
+      });
     }
   }
 
-  Future<void> _seekToTrimStart({bool playAfterSeek = true}) async {
+  Future<void> _seekToTrimStart({bool playAfterSeek = false}) async {
+    if (_isDisposed) return; // 检查是否已dispose
+    
     final p = _player;
     if (p == null) return;
     _isSeeking = true;
     try {
-      await p.seekTo(Duration(milliseconds: (_trimStart * 1000).round()));
-      if (playAfterSeek) {
-        await p.play();
+      final seekPosition = Duration(milliseconds: (_trimStart * 1000).round());
+      await p.seekTo(seekPosition);
+      
+      // 如果有自定义音频，同步音频播放位置（但不播放）
+      if (!_isDisposed && _audioPlayer != null && _audioTrackType == AudioTrackType.custom) {
+        await _audioPlayer!.seek(seekPosition);
       }
     } finally {
       _isSeeking = false;
@@ -346,12 +444,28 @@ class FfmpegCropperController extends ChangeNotifier {
           audioParam = '-an'; // Remove audio track
           break;
         case AudioTrackType.custom:
-          if (_customAudioPath != null && File(_customAudioPath!).existsSync()) {
-            // Add custom audio as second input
-            inputParams.add("-i '$_customAudioPath'");
-            // Mix video with custom audio, keeping video length
-            filterComplex = "-filter_complex \"[0:v]$filter[v];[1:a]atrim=duration=$t[a]\" -map \"[v]\" -map \"[a]\" -c:v libx264 -preset veryfast -crf 23 -c:a aac";
-            audioParam = "";
+          if (_customAudioPath != null) {
+            String? actualAudioPath;
+            
+            // Check if it's an asset path or a file path
+            if (_customAudioPath!.startsWith('assets/')) {
+              // Copy asset to temporary directory
+              actualAudioPath = await _copyAssetToTemp(_customAudioPath!);
+            } else if (File(_customAudioPath!).existsSync()) {
+              // Use existing file path
+              actualAudioPath = _customAudioPath!;
+            }
+            
+            if (actualAudioPath != null) {
+              // Add custom audio as second input
+              inputParams.add("-i '$actualAudioPath'");
+              // Mix video with custom audio, keeping video length
+              filterComplex = "-filter_complex \"[0:v]$filter[v];[1:a]atrim=duration=$t[a]\" -map \"[v]\" -map \"[a]\" -c:v libx264 -preset veryfast -crf 23 -c:a aac";
+              audioParam = "";
+            } else {
+              // Fallback to silent if custom audio not found
+              audioParam = '-an';
+            }
           } else {
             // Fallback to silent if custom audio not found
             audioParam = '-an';
@@ -386,24 +500,45 @@ class FfmpegCropperController extends ChangeNotifier {
   }
 
   Future<void> playPause() async {
+    if (_isDisposed) return; // 检查是否已dispose
+    
     final p = _player;
     if (p == null) return;
     
     if (p.value.isPlaying) {
+      // 暂停播放
       await p.pause();
+      // 如果有自定义音频，也暂停音频播放
+      if (!_isDisposed && _audioPlayer != null && _audioTrackType == AudioTrackType.custom) {
+        await _audioPlayer!.pause();
+      }
     } else {
+      // 开始播放
+      // 确保视频和音频都从trim start位置开始
       await _seekToTrimStart();
+      if (_isDisposed) return;
+      
+      // 同时开始播放视频和音频
       await p.play();
+      if (!_isDisposed && _audioPlayer != null && _audioTrackType == AudioTrackType.custom) {
+        await _audioPlayer!.play();
+      }
     }
     _updateState();
   }
 
   Future<void> seekTo(Duration position) async {
+    if (_isDisposed) return; // 检查是否已dispose
+    
     final p = _player;
     if (p == null) return;
     _isSeeking = true;
     try {
       await p.seekTo(position);
+      // 如果有自定义音频，同步音频播放位置
+      if (!_isDisposed && _audioPlayer != null && _audioTrackType == AudioTrackType.custom) {
+        await _audioPlayer!.seek(position);
+      }
       _updateState();
     } finally {
       _isSeeking = false;
@@ -419,8 +554,10 @@ class FfmpegCropperController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _isDisposed = true; // 设置dispose标志
     _player?.removeListener(_onTick);
     _player?.dispose();
+    _disposeAudioPlayer();
     _clearThumbnails();
     super.dispose();
   }

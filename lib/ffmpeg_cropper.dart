@@ -100,6 +100,18 @@ class _FfmpegCropperScreenState extends State<FfmpegCropperScreen> {
                     },
                     enabled: !_controller.isRunning,
                   ),
+                  // Audio track selector
+                  // AudioTrackSelector(
+                  //   selectedTrackType: _controller.audioTrackType,
+                  //   customAudioPath: _controller.customAudioPath,
+                  //   onTrackTypeChanged: (type) {
+                  //     _controller.setAudioTrackType(type);
+                  //   },
+                  //   onCustomAudioChanged: (path) {
+                  //     _controller.setCustomAudioPath(path);
+                  //   },
+                  //   enabled: !_controller.isRunning,
+                  // ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -173,14 +185,22 @@ class _FfmpegCropperScreenState extends State<FfmpegCropperScreen> {
                       if (path == null) {
                         _controller.setCustomAudioPath(null);
                         _controller.setAudioTrackType(AudioTrackType.original);
-                      } else {
-                        // Implement file picker for audio
+                      } else if (path.startsWith('assets/')) {
+                        // Use asset audio directly
+                        _controller.setCustomAudioPath(path);
+                        _controller.setAudioTrackType(AudioTrackType.custom);
+                      } else if (path == 'placeholder_path') {
+                        // Show file picker for custom audio
                         final result = await FilePicker.platform.pickFiles(type: FileType.audio);
                         if (result != null && result.files.single.path != null) {
                           final audioPath = result.files.single.path!;
                           _controller.setCustomAudioPath(audioPath);
                           _controller.setAudioTrackType(AudioTrackType.custom);
                         }
+                      } else {
+                        // Direct file path provided
+                        _controller.setCustomAudioPath(path);
+                        _controller.setAudioTrackType(AudioTrackType.custom);
                       }
                     },
                     customAudioPath: _controller.customAudioPath,

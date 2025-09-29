@@ -604,6 +604,33 @@ class _JianyingTimelineState extends State<JianyingTimeline> {
               ),
             ),
           ] else ...[
+            // Asset audio option
+            GestureDetector(
+              onTap: () async {
+                // Use a built-in asset audio file
+                widget.onAudioFileSelected?.call('assets/audio/default_background.mp3');
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade800.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.blue.shade600, width: 1),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.library_music, color: Colors.blue, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      '默认音频',
+                      style: TextStyle(color: Colors.blue.shade200, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Custom audio option
             GestureDetector(
               onTap: () async {
                 // Simple file selection - you can implement file picker here
@@ -621,7 +648,7 @@ class _JianyingTimelineState extends State<JianyingTimeline> {
                     Icon(Icons.add, color: Colors.orange, size: 16),
                     const SizedBox(width: 4),
                     Text(
-                      '添加音频',
+                      '自定义音频',
                       style: TextStyle(color: Colors.orange.shade200, fontSize: 12),
                     ),
                   ],
