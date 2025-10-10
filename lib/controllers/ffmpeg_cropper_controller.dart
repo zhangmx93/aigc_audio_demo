@@ -1,16 +1,10 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_new/return_code.dart';
-import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
-import 'package:ffmpeg_kit_flutter_new/media_information_session.dart';
-import 'package:ffmpeg_kit_flutter_new/media_information.dart';
 import 'package:video_player/video_player.dart';
 import 'package:just_audio/just_audio.dart';
 import '../data/export_formats.dart';
 import '../data/audio_tracks.dart';
+import '../utils/ffmpeg_utils.dart';
 
 class FfmpegCropperController extends ChangeNotifier {
   String? _inputPath;
@@ -32,6 +26,7 @@ class FfmpegCropperController extends ChangeNotifier {
   ExportFormat _exportFormat = ExportFormat.mov;
   AudioTrackType _audioTrackType = AudioTrackType.original;
   String? _customAudioPath;
+  double _aspectRatio = 1.0; // 默认正方形比例
   // Thumbnail generation based on frame rate
   static const double _thumbnailFrameRate = 1.0; // 1 thumbnail per second
   static const int _maxThumbnails = 60; // Maximum thumbnails to prevent excessive generation
@@ -60,6 +55,7 @@ class FfmpegCropperController extends ChangeNotifier {
   ExportFormat get exportFormat => _exportFormat;
   AudioTrackType get audioTrackType => _audioTrackType;
   String? get customAudioPath => _customAudioPath;
+  double get aspectRatio => _aspectRatio;
   
   // 获取当前是否正在播放
   bool get isPlaying => _player?.value.isPlaying ?? false;
@@ -145,6 +141,11 @@ class FfmpegCropperController extends ChangeNotifier {
 
   void setExportFormat(ExportFormat format) {
     _exportFormat = format;
+    _updateState();
+  }
+
+  void setAspectRatio(double ratio) {
+    _aspectRatio = ratio;
     _updateState();
   }
 
@@ -235,23 +236,6 @@ class FfmpegCropperController extends ChangeNotifier {
     }
   }
 
-  /// Copy asset file to temporary directory for FFmpeg processing
-  Future<String?> _copyAssetToTemp(String assetPath) async {
-    try {
-      final ByteData data = await rootBundle.load(assetPath);
-      final buffer = data.buffer;
-      final dir = await getTemporaryDirectory();
-      final fileName = assetPath.split('/').last;
-      final tempFile = File('${dir.path}/$fileName');
-      await tempFile.writeAsBytes(buffer.asUint8List(data.offsetInBytes, data.lengthInBytes));
-      return tempFile.path;
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error copying asset: $e');
-      }
-      return null;
-    }
-  }
 
   Future<void> initPlayer(String path) async {
     try {
@@ -330,28 +314,16 @@ class FfmpegCropperController extends ChangeNotifier {
     _updateState();
 
     try {
-      final dir = await getTemporaryDirectory();
-      final thumbsDir = Directory('${dir.path}/thumbs_${DateTime.now().millisecondsSinceEpoch}');
-      if (!thumbsDir.existsSync()) thumbsDir.createSync(recursive: true);
-
-      final totalSec = _duration.inMilliseconds / 1000.0;
-      if (totalSec <= 0) return;
-      
-      // Calculate number of thumbnails based on frame rate
-      final thumbnailCount = (totalSec * _thumbnailFrameRate).round().clamp(1, _maxThumbnails);
-      final interval = totalSec / thumbnailCount;
-      
-      for (int i = 0; i < thumbnailCount; i++) {
-        final ts = i * interval + (interval / 2); // Center of each interval
-        final out = '${thumbsDir.path}/t_${i.toString().padLeft(3, '0')}.jpg';
-        final cmd = "-y -ss ${ts.toStringAsFixed(3)} -i '$inputPath' -frames:v 1 -vf scale=320:-1 '$out'";
-        final session = await FFmpegKit.execute(cmd);
-        final rc = await session.getReturnCode();
-        if (ReturnCode.isSuccess(rc) && File(out).existsSync()) {
-          _thumbnails.add(out);
+      await FFmpegUtils.generateThumbnails(
+        inputPath: inputPath,
+        duration: _duration,
+        frameRate: _thumbnailFrameRate,
+        maxThumbnails: _maxThumbnails,
+        onThumbnailGenerated: (thumbnailPath) {
+          _thumbnails.add(thumbnailPath);
           _updateState();
-        }
-      }
+        },
+      );
     } catch (e) {
       setLog('缩略图生成失败: $e');
     } finally {
@@ -361,40 +333,10 @@ class FfmpegCropperController extends ChangeNotifier {
   }
 
   Future<void> _clearThumbnails() async {
-    try {
-      for (final path in _thumbnails) {
-        final f = File(path);
-        if (await f.exists()) {
-          await f.delete();
-        }
-      }
-    } catch (_) {}
+    await FFmpegUtils.clearThumbnails(_thumbnails);
     _thumbnails.clear();
   }
 
-  Future<({int width, int height})?> _probeSize(String path) async {
-    try {
-      final MediaInformationSession session =
-          await FFprobeKit.getMediaInformation(path);
-      final MediaInformation? info = session.getMediaInformation();
-      if (info == null) return null;
-      final streams = info.getStreams();
-      if (streams.isEmpty) return null;
-      final videoStream = streams.firstWhere(
-        (s) =>
-            (s.getAllProperties()?['codec_type']?.toString() ?? '') == 'video',
-        orElse: () => streams.first,
-      );
-      final props = videoStream.getAllProperties() ?? {};
-      final width = int.tryParse(props['width']?.toString() ?? '');
-      final height = int.tryParse(props['height']?.toString() ?? '');
-      if (width == null || height == null) return null;
-      return (width: width, height: height);
-    } catch (e) {
-      setLog('Probe error: $e');
-      return null;
-    }
-  }
 
   Future<void> cropCenterSquare() async {
     final input = _inputPath;
@@ -403,95 +345,30 @@ class FfmpegCropperController extends ChangeNotifier {
     final total = _duration.inMilliseconds / 1000.0;
     final start = _trimStart.clamp(0.0, total);
     final end = _trimEnd.clamp(0.0, total);
-    final startSec = start;
-    final durSec = (end > start) ? (end - start) : (total - start);
+    final startTime = Duration(milliseconds: (start * 1000).round());
+    final duration = Duration(milliseconds: ((end > start) ? (end - start) : (total - start) * 1000).round());
 
     setRunning(true);
     setLog('Running...');
     setOutputPath(null);
 
     try {
-      final size = await _probeSize(input);
-      if (size == null) {
-        setRunning(false);
-        setLog('无法读取视频尺寸');
-        return;
-      }
-
-      final minSide = size.width < size.height ? size.width : size.height;
-      final x = ((size.width - minSide) / 2).floor();
-      final y = ((size.height - minSide) / 2).floor();
-
-      final dir = await getTemporaryDirectory();
-      final formatData = ExportFormats.getByFormat(_exportFormat);
-      final outPath =
-          '${dir.path}/crop_${DateTime.now().millisecondsSinceEpoch}.${formatData.extension}';
-
-      final filter = 'crop=$minSide:$minSide:$x:$y';
-      final ss = startSec.toStringAsFixed(3);
-      final t = durSec.toStringAsFixed(3);
-      
-      // Build FFmpeg command with audio track support
-      String audioParam;
-      List<String> inputParams = ["-i '$input'"];
-      String filterComplex = "";
-      
-      switch (_audioTrackType) {
-        case AudioTrackType.original:
-          audioParam = '-c:a copy';
-          break;
-        case AudioTrackType.silent:
-          audioParam = '-an'; // Remove audio track
-          break;
-        case AudioTrackType.custom:
-          if (_customAudioPath != null) {
-            String? actualAudioPath;
-            
-            // Check if it's an asset path or a file path
-            if (_customAudioPath!.startsWith('assets/')) {
-              // Copy asset to temporary directory
-              actualAudioPath = await _copyAssetToTemp(_customAudioPath!);
-            } else if (File(_customAudioPath!).existsSync()) {
-              // Use existing file path
-              actualAudioPath = _customAudioPath!;
-            }
-            
-            if (actualAudioPath != null) {
-              // Add custom audio as second input
-              inputParams.add("-i '$actualAudioPath'");
-              // Mix video with custom audio, keeping video length
-              filterComplex = "-filter_complex \"[0:v]$filter[v];[1:a]atrim=duration=$t[a]\" -map \"[v]\" -map \"[a]\" -c:v libx264 -preset veryfast -crf 23 -c:a aac";
-              audioParam = "";
-            } else {
-              // Fallback to silent if custom audio not found
-              audioParam = '-an';
-            }
-          } else {
-            // Fallback to silent if custom audio not found
-            audioParam = '-an';
-          }
-          break;
-      }
-      
-      String cmd;
-      if (filterComplex.isNotEmpty) {
-        // Custom audio command
-        cmd = "-y ${inputParams.join(' ')} -ss $ss -t $t $filterComplex '$outPath'";
-      } else {
-        // Standard command
-        cmd = "-y -i '$input' -ss $ss -t $t -vf $filter -c:v libx264 -preset veryfast -crf 23 $audioParam '$outPath'";
-      }
-
-      final session = await FFmpegKit.execute(cmd);
-      final rc = await session.getReturnCode();
-      final success = ReturnCode.isSuccess(rc);
+      final result = await FFmpegUtils.cropVideo(
+        inputPath: input,
+        startTime: startTime,
+        duration: duration,
+        exportFormat: _exportFormat,
+        audioTrackType: _audioTrackType,
+        customAudioPath: _customAudioPath,
+        aspectRatio: _aspectRatio,
+      );
 
       setRunning(false);
-      if (success && File(outPath).existsSync()) {
-        setOutputPath(outPath);
+      if (result.success && result.outputPath != null) {
+        setOutputPath(result.outputPath!);
         setLog('裁剪完成');
       } else {
-        setLog('裁剪失败: ${rc?.getValue()}');
+        setLog(result.errorMessage ?? '裁剪失败');
       }
     } catch (e) {
       setRunning(false);
